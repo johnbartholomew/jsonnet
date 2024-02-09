@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - 'master'
+      - 'try-windows-build'
     tags:
       - v*
 
@@ -78,3 +79,21 @@ jobs:
       - name: Test
         run: |
           bazel test //...
+
+  windows_build:
+    name: Build and Test on Windows
+    runs-on: 'windows-2019'
+    # Currently this is a direct copy of the CMake workflow...
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (cmake)
+        run: |
+          cmake -B "${{github.workspace}}/build"
+      - name: Build (cmake --build)
+        working-directory: ${{github.workspace}}/build
+        run: |
+          cmake --build .
+      - name: Test (ctest))
+        working-directory: ${{github.workspace}}/build
+        run: |
+          ctest --output-on-failure
