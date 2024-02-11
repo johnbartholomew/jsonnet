@@ -12,16 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-CMAKE ?= cmake
+CMAKE_FLAGS ?= -DUSE_SYSTEM_RAPIDYAML=ON
+CMAKE ?= cmake -G "Unix Makefiles" $(CMAKE_FLAGS)
 CMAKE_BUILD_DIR ?= ./build
 
 default: jsonnet jsonnetfmt
 
 all:
-	$(CMAKE) -B "$(CMAKE_BUILD_DIR)" && $(CMAKE) --build "$(CMAKE_BUILD_DIR)" --target all
+	$(CMAKE) -B "$(CMAKE_BUILD_DIR)" && $(MAKE) -C "$(CMAKE_BUILD_DIR)" all
 
 install:
-	$(CMAKE) -B "$(CMAKE_BUILD_DIR)" && $(CMAKE) --build "$(CMAKE_BUILD_DIR)" --target install
+	$(CMAKE) -B "$(CMAKE_BUILD_DIR)" && $(MAKE) -C "$(CMAKE_BUILD_DIR)" install
 
 # test: jsonnet jsonnetfmt libjsonnet.so libjsonnet_test_snippet libjsonnet_test_file libjsonnet_test_locale
 # 	./tests.sh
@@ -34,11 +35,11 @@ test-formatting:
 
 # Commandline executable.
 jsonnet:
-	$(CMAKE) -B "$(CMAKE_BUILD_DIR)" && $(CMAKE) --build "$(CMAKE_BUILD_DIR)" --target jsonnet && cp "$(CMAKE_BUILD_DIR)"/jsonnet "$@"
+	$(CMAKE) -B "$(CMAKE_BUILD_DIR)" && $(MAKE) -C "$(CMAKE_BUILD_DIR)" jsonnet && cp "$(CMAKE_BUILD_DIR)"/jsonnet "$@"
 
 # Commandline executable (reformatter).
 jsonnetfmt:
-	$(CMAKE) -B "$(CMAKE_BUILD_DIR)" && $(CMAKE) --build "$(CMAKE_BUILD_DIR)" --target jsonnetfmt && cp "$(CMAKE_BUILD_DIR)"/jsonnetfmt "$@"
+	$(CMAKE) -B "$(CMAKE_BUILD_DIR)" && $(MAKE) -C "$(CMAKE_BUILD_DIR)" jsonnetfmt && cp "$(CMAKE_BUILD_DIR)"/jsonnetfmt "$@"
 
 clean:
 	rm -rvf "$(CMAKE_BUILD_DIR)"
