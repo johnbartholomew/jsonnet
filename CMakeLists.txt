@@ -1,138 +1,182 @@
-cmake_minimum_required(VERSION 2.8.7)
-project(jsonnet C CXX)
+# Debian 10 "Buster" has CMake 3.13; Buster is LTS from Aug 1 2022 to June 30 2024.
+# So this seems like a reasonable baseline to use.
+cmake_minimum_required(VERSION 3.13)
 
-include(ExternalProject)
-include(GNUInstallDirs)
+# Discourage in-source builds because they overwrite the hand-written Makefile.
+# Use `cmake . -B<dir>` or the CMake GUI to do an out-of-source build.
+if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_BINARY_DIR})
+    message(WARNING "Out-of-source builds are recommended for this project.")
+endif()
+
+# Extract the version from include/libjsonnet.h
+
+set(LIBJSONNET_VERSION_REGEX "#define LIB_JSONNET_VERSION[ \t]+\"v([^\"]+)\"")
+file(
+    STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/include/libjsonnet.h"
+    LIBJSONNET_VERSION_STRING REGEX ${LIBJSONNET_VERSION_REGEX})
+string(REGEX REPLACE ${LIBJSONNET_VERSION_REGEX} "\\1" LIBJSONNET_VERSION_STRING "${LIBJSONNET_VERSION_STRING}")
+
+project(
+    jsonnet
+    VERSION "${LIBJSONNET_VERSION_STRING}"
+    HOMEPAGE_URL "https://jsonnet.org"
+    LANGUAGES C CXX
+)
+
+include(GNUInstallDirs)  # Sets up CMAKE_INSTALL_{BINDIR,LIBDIR,INCLUDEDIR}
+
+enable_testing()
 
 # User-configurable options.
 option(BUILD_JSONNET "Build jsonnet command-line tool." ON)
 option(BUILD_JSONNETFMT "Build jsonnetfmt command-line tool." ON)
 option(BUILD_TESTS "Build and run jsonnet tests." ON)
-option(BUILD_STATIC_LIBS "Build a static libjsonnet." ON)
+option(BUILD_STATIC_LIBS "Build static libraries libjsonnet.a and libjsonnet++.a" ON)
+option(BUILD_SHARED_LIBS "Build shared libraries libjsonnet.so and libjsonnet++.so" ON)
 option(BUILD_SHARED_BINARIES "Link binaries to the shared libjsonnet instead of the static one." OFF)
-option(USE_SYSTEM_GTEST "Use system-provided gtest library" OFF)
-option(USE_SYSTEM_JSON "Use the system-provided json library" OFF)
-# TODO: Support using a system Rapid YAML install.
-set(GLOBAL_OUTPUT_PATH_SUFFIX "" CACHE STRING
-    "Output artifacts directory.")
 
-# Discourage in-source builds because they overwrite the hand-written Makefile.
-# Use `cmake . -B<dir>` or the CMake GUI to do an out-of-source build.
-if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_BINARY_DIR} AND
-        ${CMAKE_GENERATOR} MATCHES "Makefile")
-    message(WARNING "In-source builds with the a makefile generator overwrite the handwritten Makefile. Out-of-source builds are recommended for this project.")
+option(USE_SYSTEM_JSON "Use the system-provided nlohmann json library" OFF)
+option(USE_SYSTEM_RAPIDYAML "Use the system-provided Rapid YAML library" OFF)
+
+# ------ Compiler configuration
+#
+# C and C++ compiler configuration.
+#
+# Use CMake built in configuration where possible, as that should cover a wide variety of compilers.
+
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD 17)  # C++17 is needed for nested namespace definitions (`namespace jsonnet::internal`)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+if((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang"))
+    add_compile_options("-Wall" "-Wextra" "-Woverloaded-virtual" "-pedantic" "-Wno-deprecated-declarations")
 endif()
 
-# Disable CMake >3.0 warnings on Mac OS.
-set(CMAKE_MACOSX_RPATH 1)
-
-# Set output paths.
-set(GLOBAL_OUTPUT_PATH "${PROJECT_BINARY_DIR}/${GLOBAL_OUTPUT_PATH_SUFFIX}")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${GLOBAL_OUTPUT_PATH})
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${GLOBAL_OUTPUT_PATH})
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${GLOBAL_OUTPUT_PATH})
-
-# Compiler flags.
-if (${CMAKE_CXX_COMPILER_ID} MATCHES "Clang" OR
-        ${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
-    set(OPT "-O3")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -Wall -Wextra -pedantic -std=c99 -O3 ${OPT}")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wall -Wextra -Woverloaded-virtual -pedantic -std=c++17 -fPIC ${OPT}")
-else()
-    # TODO: Windows support.
-    message(FATAL_ERROR "Compiler ${CMAKE_CXX_COMPILER_ID} not supported")
-endif()
-
-set(CMAKE_CXX_STANDARD 17)
-
-
-# Include external googletest project. This runs a CMake sub-script
-# (CMakeLists.txt.in) that downloads googletest source. It's then built as part
-# of the jsonnet project. The conventional way of handling CMake dependencies is
-# to use a find_package script, which finds and installs the library from
-# known locations on the local machine. Downloading the library ourselves
-# allows us to pin to a specific version and makes things easier for users
-# who don't have package managers.
-if (BUILD_TESTS AND NOT USE_SYSTEM_GTEST)
-    enable_testing()
-
-    # Generate and download googletest project.
-    set(GOOGLETEST_DIR ${GLOBAL_OUTPUT_PATH}/googletest-download)
-    configure_file(CMakeLists.txt.in ${GOOGLETEST_DIR}/CMakeLists.txt)
-    execute_process(COMMAND ${CMAKE_COMMAND} -G "${CMAKE_GENERATOR}" .
-            RESULT_VARIABLE result
-            WORKING_DIRECTORY ${GOOGLETEST_DIR}
-    )
-    if(result)
-        message(FATAL_ERROR "googletest download failed: ${result}")
-    endif()
-
-    # Build googletest.
-    execute_process(COMMAND ${CMAKE_COMMAND} --build .
-        RESULT_VARIABLE result
-        WORKING_DIRECTORY ${GOOGLETEST_DIR})
-    if(result)
-        message(FATAL_ERROR "Build step for googletest failed: ${result}")
-    endif()
-
-    # Prevent overriding the parent project's compiler/linker
-    # settings on Windows
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-
-    # Add googletest directly to our build. This defines
-    # the gtest and gtest_main targets.
-    add_subdirectory(${GLOBAL_OUTPUT_PATH}/googletest-src
-                                     ${GLOBAL_OUTPUT_PATH}/googletest-build)
-
-    # Include googletest headers.
-    include_directories("${gtest_SOURCE_DIR}/include")
-
-	# Alias the targets to their namespaced versions.
-	add_library(GTest::GTest ALIAS gtest)
-	add_library(GTest::Main ALIAS gtest_main)
-
-elseif (BUILD_TESTS AND USE_SYSTEM_GTEST)
-	enable_testing()
-	find_package(GTest REQUIRED)
-endif()
+# ------ Dependencies
 
 if(USE_SYSTEM_JSON)
-    find_package(nlohmann_json 3.6.1 REQUIRED)
+    find_package(nlohmann_json REQUIRED)
 else()
-    add_subdirectory(third_party/json)
+    # It's a header-only library, so no extra files to build just an extra include directory.
+    add_library(nlohmann_json INTERFACE)
+    target_include_directories(nlohmann_json INTERFACE third_party/json)
 endif()
 
-# Look for libraries in global output path.
-link_directories(${GLOBAL_OUTPUT_PATH})
-
-# Targets
-
-include_directories(
-    include
-    third_party/md5
-    third_party/rapidyaml
-    core
-    cpp)
-
-if (BUILD_TESTS)
-    # Set JSONNET_BIN variable required for regression tests.
-    file(TO_NATIVE_PATH ${GLOBAL_OUTPUT_PATH}/jsonnet JSONNET_BIN)
+if(USE_SYSTEM_RAPIDYAML)
+    find_package(ryml REQUIRED)
+else()
+    message(ERROR "bundled third_party RapidYAML is not supported yet")
 endif()
 
-add_subdirectory(include)
-add_subdirectory(stdlib)
-add_subdirectory(third_party/md5)
-add_subdirectory(third_party/rapidyaml)
-add_subdirectory(core)
-add_subdirectory(cpp)
-add_subdirectory(cmd)
-add_subdirectory(test_suite)
+# ------ Source code configuration
+#
+# List out the sources we actually need to build and their dependencies.
 
-if (BUILD_TESTS)
-    # s`run_tests` target builds and runs all tests. The cmake-generated `test`
-    # target runs tests without building them.
-    add_custom_target(run_tests COMMAND ${CMAKE_CTEST_COMMAND}
-        DEPENDS libjsonnet_test libjsonnet_test_file libjsonnet_test_snippet
-                jsonnet parser_test lexer_test libjsonnet++_test libjsonnet_test_locale
-    )
+add_executable(to_c_array EXCLUDE_FROM_ALL "stdlib/to_c_array.cpp")
+add_custom_command(
+    OUTPUT "${PROJECT_BINARY_DIR}/stdlib/std.jsonnet.h"
+    COMMAND "$<TARGET_FILE:to_c_array>" "${PROJECT_SOURCE_DIR}/stdlib/std.jsonnet" "${PROJECT_BINARY_DIR}/stdlib/std.jsonnet.h"
+    MAIN_DEPENDENCY stdlib/std.jsonnet
+    DEPENDS to_c_array
+    COMMENT "Packing stdlib.jsonnet"
+    VERBATIM  # Command arguments should be interpreted verbatim (don't go through the shell)
+)
+
+add_library(libjsonnet_obj OBJECT)
+target_include_directories(
+    libjsonnet_obj
+    PUBLIC include
+    PRIVATE
+        third_party/md5
+        "${PROJECT_BINARY_DIR}/stdlib"
+)
+target_sources(libjsonnet_obj
+    PRIVATE
+        "${PROJECT_BINARY_DIR}/stdlib/std.jsonnet.h"
+
+        core/desugarer.cpp
+        core/formatter.cpp
+        core/lexer.cpp
+        core/libjsonnet.cpp
+        core/parser.cpp
+        core/pass.cpp
+        core/static_analysis.cpp
+        core/string_utils.cpp
+        core/vm.cpp
+
+        third_party/md5/md5.cpp
+)
+# Build with -fPIC regardless of whether we're trying to make a static or shared lib.
+# This allows the OBJECT library to be used in the built SHARED libraries.
+# It has the disadvantage of applying -fPIC unnecessarily to the static library code.
+set_target_properties(libjsonnet_obj PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(libjsonnet_obj PRIVATE nlohmann_json ryml)
+
+# ------ Outputs / build target configuration
+#
+# Specify the actual outputs we care about building.
+
+if(BUILD_SHARED_LIBS OR BUILD_SHARED_BINARIES)
+    add_library(libjsonnet_shared SHARED)
+    target_link_libraries(libjsonnet_shared PUBLIC libjsonnet_obj)
+    add_library(libjsonnetpp_shared SHARED "cpp/libjsonnet++.cpp")
+    target_link_libraries(libjsonnetpp_shared PUBLIC libjsonnet_obj)
+
+    set_target_properties(libjsonnet_shared PROPERTIES
+        OUTPUT_NAME jsonnet  # The 'lib' prefix is added internally.
+	    VERSION "${LIBJSONNET_VERSION_STRING}"
+        SOVERSION "0")
+    set_target_properties(libjsonnetpp_shared PROPERTIES
+        OUTPUT_NAME "jsonnet++"  # The 'lib' prefix is added internally.
+	    VERSION "${LIBJSONNET_VERSION_STRING}"
+        SOVERSION "0")
+
+    if(BUILD_SHARED_LIBS)
+        install(
+            TARGETS libjsonnet_shared libjsonnetpp_shared
+            LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+            PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+    endif()
+    if(BUILD_SHARED_BINARIES)
+        add_library(libjsonnet_for_binaries ALIAS libjsonnet_shared)
+    endif()
+endif()
+
+if(BUILD_STATIC_LIBS OR (NOT BUILD_SHARED_BINARIES))
+    add_library(libjsonnet_static STATIC)
+    target_link_libraries(libjsonnet_static PUBLIC libjsonnet_obj)
+    add_library(libjsonnetpp_static STATIC "cpp/libjsonnet++.cpp")
+    target_link_libraries(libjsonnetpp_static PUBLIC libjsonnet_obj)
+
+    set_target_properties(libjsonnet_static PROPERTIES
+        OUTPUT_NAME jsonnet  # The 'lib' prefix is added internally.
+	    VERSION "${LIBJSONNET_VERSION_STRING}")
+    set_target_properties(libjsonnetpp_static PROPERTIES
+        OUTPUT_NAME "jsonnet++"  # The 'lib' prefix is added internally.
+	    VERSION "${LIBJSONNET_VERSION_STRING}")
+
+    if(BUILD_STATIC_LIBS)
+        install(
+            TARGETS libjsonnet_static libjsonnetpp_static
+            ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+            PUBLIC_HEADER DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+    endif()
+    if(NOT BUILD_SHARED_BINARIES)
+        add_library(libjsonnet_for_binaries ALIAS libjsonnet_static)
+    endif()
+endif()
+
+if(BUILD_JSONNET)
+    add_executable(jsonnet "cmd/jsonnet.cpp" "cmd/utils.cpp")
+    target_link_libraries(jsonnet PRIVATE libjsonnet_for_binaries)
+    install(TARGETS jsonnet RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+endif()
+
+if(BUILD_JSONNETFMT)
+    add_executable(jsonnetfmt "cmd/jsonnetfmt.cpp" "cmd/utils.cpp")
+    target_link_libraries(jsonnetfmt PRIVATE libjsonnet_for_binaries)
+    install(TARGETS jsonnetfmt RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
