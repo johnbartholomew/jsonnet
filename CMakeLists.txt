@@ -80,8 +80,8 @@ add_custom_command(
     OUTPUT "${PROJECT_BINARY_DIR}/stdlib/std.jsonnet.h"
     COMMAND "$<TARGET_FILE:to_c_array>" "${PROJECT_SOURCE_DIR}/stdlib/std.jsonnet" "${PROJECT_BINARY_DIR}/stdlib/std.jsonnet.h"
     MAIN_DEPENDENCY stdlib/std.jsonnet
-    DEPENDS to_c_array
-    COMMENT "Packing stdlib.jsonnet"
+    DEPENDS "$<TARGET_FILE:to_c_array>"
+    COMMENT "Packing std.jsonnet"
     VERBATIM  # Command arguments should be interpreted verbatim (don't go through the shell)
 )
 
