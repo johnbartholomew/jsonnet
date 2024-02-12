@@ -121,9 +121,10 @@ if(USE_SYSTEM_RAPIDYAML)
     target_compile_definitions(libjsonnet_obj PRIVATE "USE_SYSTEM_RAPIDYAML=1")
 else()
     # Add the bundled Rapid YAML single translation unit directly to libjsonnet_obj.
-    target_compile_definitions(libjsonnet_obj PRIVATE "USE_SYSTEM_RAPIDYAML=0")
     target_sources(libjsonnet_obj PRIVATE third_party/rapidyaml/rapidyaml.cpp)
-    target_include_directories(libjsonnet_obj INTERFACE third_party/rapidyaml)
+    target_compile_definitions(libjsonnet_obj PRIVATE "USE_SYSTEM_RAPIDYAML=0")
+    target_compile_definitions(libjsonnet_obj PUBLIC "RYML_SHARED=1")
+    target_include_directories(libjsonnet_obj PUBLIC third_party/rapidyaml)
 endif()
 
 # ------ Outputs / build target configuration

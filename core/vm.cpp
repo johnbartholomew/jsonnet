@@ -23,10 +23,11 @@ limitations under the License.
 
 #include <nlohmann/json.hpp>
 #if defined(USE_SYSTEM_RAPIDYAML) && USE_SYSTEM_RAPIDYAML
+#include <ryml_std.hpp>
 #include <ryml.hpp>
 #else
 // Bundled single-header Rapid YAML from third_party directory.
-#include "ryml_all.hpp"
+#include <ryml_all.hpp>
 #endif
 
 #include "desugarer.h"
