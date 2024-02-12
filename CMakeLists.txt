@@ -76,6 +76,8 @@ endif()
 # List out the sources we actually need to build and their dependencies.
 
 add_executable(to_c_array EXCLUDE_FROM_ALL "stdlib/to_c_array.cpp")
+# to_c_array doesn't create the output directory, so we need to create it here.
+file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/stdlib")
 add_custom_command(
     OUTPUT "${PROJECT_BINARY_DIR}/stdlib/std.jsonnet.h"
     COMMAND "$<TARGET_FILE:to_c_array>" "${PROJECT_SOURCE_DIR}/stdlib/std.jsonnet" "${PROJECT_BINARY_DIR}/stdlib/std.jsonnet.h"
