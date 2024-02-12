@@ -24,22 +24,20 @@ all:
 install:
 	$(CMAKE) -B "$(CMAKE_BUILD_DIR)" && $(MAKE) -C "$(CMAKE_BUILD_DIR)" install
 
-# test: jsonnet jsonnetfmt libjsonnet.so libjsonnet_test_snippet libjsonnet_test_file libjsonnet_test_locale
-# 	./tests.sh
+jsonnet:
+	$(CMAKE) -B "$(CMAKE_BUILD_DIR)" && $(MAKE) -C "$(CMAKE_BUILD_DIR)" jsonnet && cp "$(CMAKE_BUILD_DIR)"/jsonnet "$@"
+
+jsonnetfmt:
+	$(CMAKE) -B "$(CMAKE_BUILD_DIR)" && $(MAKE) -C "$(CMAKE_BUILD_DIR)" jsonnetfmt && cp "$(CMAKE_BUILD_DIR)"/jsonnetfmt "$@"
+
+test: jsonnet jsonnetfmt # libjsonnet.so libjsonnet_test_snippet libjsonnet_test_file libjsonnet_test_locale
+	JSONNET_BIN="$(CMAKE_BUILD_DIR)/jsonnet" ./tests.sh
 
 reformat:
 	clang-format -i -style=file **/*.cpp **/*.h
 
 test-formatting:
 	clang-format -Werror --dry-run -style=file **/*.cpp **/*.h
-
-# Commandline executable.
-jsonnet:
-	$(CMAKE) -B "$(CMAKE_BUILD_DIR)" && $(MAKE) -C "$(CMAKE_BUILD_DIR)" jsonnet && cp "$(CMAKE_BUILD_DIR)"/jsonnet "$@"
-
-# Commandline executable (reformatter).
-jsonnetfmt:
-	$(CMAKE) -B "$(CMAKE_BUILD_DIR)" && $(MAKE) -C "$(CMAKE_BUILD_DIR)" jsonnetfmt && cp "$(CMAKE_BUILD_DIR)"/jsonnetfmt "$@"
 
 clean:
 	rm -rvf "$(CMAKE_BUILD_DIR)"
