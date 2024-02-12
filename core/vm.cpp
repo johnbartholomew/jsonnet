@@ -912,6 +912,7 @@ class Interpreter {
         builtins["asin"] = &Interpreter::builtinAsin;
         builtins["acos"] = &Interpreter::builtinAcos;
         builtins["atan"] = &Interpreter::builtinAtan;
+        builtins["atan2"] = &Interpreter::builtinAtan2;
         builtins["type"] = &Interpreter::builtinType;
         builtins["filter"] = &Interpreter::builtinFilter;
         builtins["objectHasEx"] = &Interpreter::builtinObjectHasEx;
@@ -1099,6 +1100,13 @@ class Interpreter {
     {
         validateBuiltinArgs(loc, "atan", args, {Value::NUMBER});
         scratch = makeNumberCheck(loc, std::atan(args[0].v.d));
+        return nullptr;
+    }
+
+    const AST *builtinAtan2(const LocationRange &loc, const std::vector<Value> &args)
+    {
+        validateBuiltinArgs(loc, "atan2", args, {Value::NUMBER, Value::NUMBER});
+        scratch = makeNumberCheck(loc, std::atan2(args[0].v.d, args[1].v.d));
         return nullptr;
     }
 

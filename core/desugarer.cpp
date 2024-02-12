@@ -51,6 +51,7 @@ BuiltinDecl jsonnet_builtin_decl(unsigned long builtin)
         case 8: return {U"asin", {U"x"}};
         case 9: return {U"acos", {U"x"}};
         case 10: return {U"atan", {U"x"}};
+        case 10: return {U"atan2", {U"x"}};
         case 11: return {U"type", {U"x"}};
         case 12: return {U"filter", {U"func", U"arr"}};
         case 13: return {U"objectHasEx", {U"obj", U"f", U"inc_hidden"}};
