@@ -60,23 +60,6 @@ if((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") OR (CMAKE_CXX_COMPILER_ID STREQUAL "Cl
     add_compile_options("-Wall" "-Wextra" "-Woverloaded-virtual" "-pedantic" "-Wno-deprecated-declarations")
 endif()
 
-# ------ Dependencies
-
-if(USE_SYSTEM_JSON)
-    find_package(nlohmann_json REQUIRED)
-else()
-    # It's a header-only library, so no extra files to build just an extra include directory.
-    add_library(nlohmann_json INTERFACE)
-    target_include_directories(nlohmann_json INTERFACE third_party/json)
-endif()
-
-if(USE_SYSTEM_RAPIDYAML)
-    find_package(ryml REQUIRED)
-else()
-    add_library(ryml STATIC third_party/rapidyaml/rapidyaml.cpp)
-    target_include_directories(ryml INTERFACE third_party/rapidyaml)
-endif()
-
 # ------ Source code configuration
 #
 # List out the sources we actually need to build and their dependencies.
@@ -121,7 +104,27 @@ target_sources(libjsonnet_obj
 # This allows the OBJECT library to be used in the built SHARED libraries.
 # It has the disadvantage of applying -fPIC unnecessarily to the static library code.
 set_target_properties(libjsonnet_obj PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_link_libraries(libjsonnet_obj PRIVATE nlohmann_json ryml)
+
+# ------ Third-Party dependencies
+
+if(USE_SYSTEM_JSON)
+    find_package(nlohmann_json REQUIRED)
+    target_link_libraries(libjsonnet_obj PUBLIC nlohmann_json)
+else()
+    # It's a header-only library, so no extra files to build just an extra include directory.
+    target_include_directories(libjsonnet_obj INTERFACE third_party/json)
+endif()
+
+if(USE_SYSTEM_RAPIDYAML)
+    find_package(ryml REQUIRED)
+    target_link_libraries(libjsonnet_obj PUBLIC ryml)
+    target_compile_definitions(libjsonnet_obj PRIVATE "USE_SYSTEM_RAPIDYAML=1")
+else()
+    # Add the bundled Rapid YAML single translation unit directly to libjsonnet_obj.
+    target_compile_definitions(libjsonnet_obj PRIVATE "USE_SYSTEM_RAPIDYAML=0")
+    target_sources(libjsonnet_obj PRIVATE third_party/rapidyaml/rapidyaml.cpp)
+    target_include_directories(libjsonnet_obj INTERFACE third_party/rapidyaml)
+endif()
 
 # ------ Outputs / build target configuration
 #
