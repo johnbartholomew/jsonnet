@@ -30,8 +30,15 @@ jsonnet:
 jsonnetfmt:
 	$(CMAKE) -B "$(CMAKE_BUILD_DIR)" && $(MAKE) -C "$(CMAKE_BUILD_DIR)" jsonnetfmt && cp "$(CMAKE_BUILD_DIR)"/jsonnetfmt "$@"
 
-test: jsonnet jsonnetfmt # libjsonnet.so libjsonnet_test_snippet libjsonnet_test_file libjsonnet_test_locale
-	JSONNET_BIN="$(CMAKE_BUILD_DIR)/jsonnet" ./tests.sh
+test: # jsonnet jsonnetfmt # libjsonnet.so libjsonnet_test_snippet libjsonnet_test_file libjsonnet_test_locale
+	{ \
+	  $(CMAKE) -B "$(CMAKE_BUILD_DIR)" && \
+	  $(MAKE) -C "$(CMAKE_BUILD_DIR)" jsonnet jsonnetfmt && \
+	  JSONNET_BIN="$(CMAKE_BUILD_DIR)/jsonnet" \
+	  JSONNETFMT_BIN="$(CMAKE_BUILD_DIR)/jsonnetfmt" \
+	  DISABLE_LIB_TESTS=1 \
+	    ./tests.sh \
+	; }
 
 reformat:
 	clang-format -i -style=file **/*.cpp **/*.h
@@ -42,4 +49,4 @@ test-formatting:
 clean:
 	rm -rvf "$(CMAKE_BUILD_DIR)"
 
-.PHONY: default all install clean reformat test-formatting
+.PHONY: default all install clean test reformat test-formatting
