@@ -21,12 +21,13 @@ limitations under the License.
 #include <set>
 #include <string>
 
+#include <nlohmann/json.hpp>
+#include <ryml.hpp>
+
 #include "desugarer.h"
 #include "json.h"
-#include <nlohmann/json.hpp>
 #include "md5.h"
 #include "parser.h"
-#include "ryml_all.hpp"
 #include "state.h"
 #include "static_analysis.h"
 #include "string_utils.h"

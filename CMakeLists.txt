@@ -2,6 +2,23 @@
 # So this seems like a reasonable baseline to use.
 cmake_minimum_required(VERSION 3.13)
 
+# ------ User-configurable options.
+#
+# Use ccmake or cmake-gui to configure these, or set them when first running cmake
+# with the -D option.
+
+option(BUILD_JSONNET "Build jsonnet command-line tool." ON)
+option(BUILD_JSONNETFMT "Build jsonnetfmt command-line tool." ON)
+option(BUILD_TESTS "Build and run jsonnet tests." ON)
+option(BUILD_STATIC_LIBS "Build static libraries libjsonnet.a and libjsonnet++.a" ON)
+option(BUILD_SHARED_LIBS "Build shared libraries libjsonnet.so and libjsonnet++.so" ON)
+option(BUILD_SHARED_BINARIES "Link binaries to the shared libjsonnet instead of the static one." OFF)
+
+option(USE_SYSTEM_JSON "Use the system-provided nlohmann json library" OFF)
+option(USE_SYSTEM_RAPIDYAML "Use the system-provided Rapid YAML library" OFF)
+
+# ------ Initial module imports, project setup, etc.
+
 # Discourage in-source builds because they overwrite the hand-written Makefile.
 # Use `cmake . -B<dir>` or the CMake GUI to do an out-of-source build.
 if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_BINARY_DIR})
@@ -9,7 +26,6 @@ if (${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_BINARY_DIR})
 endif()
 
 # Extract the version from include/libjsonnet.h
-
 set(LIBJSONNET_VERSION_REGEX "#define LIB_JSONNET_VERSION[ \t]+\"v([^\"]+)\"")
 file(
     STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/include/libjsonnet.h"
@@ -26,17 +42,6 @@ project(
 include(GNUInstallDirs)  # Sets up CMAKE_INSTALL_{BINDIR,LIBDIR,INCLUDEDIR}
 
 enable_testing()
-
-# User-configurable options.
-option(BUILD_JSONNET "Build jsonnet command-line tool." ON)
-option(BUILD_JSONNETFMT "Build jsonnetfmt command-line tool." ON)
-option(BUILD_TESTS "Build and run jsonnet tests." ON)
-option(BUILD_STATIC_LIBS "Build static libraries libjsonnet.a and libjsonnet++.a" ON)
-option(BUILD_SHARED_LIBS "Build shared libraries libjsonnet.so and libjsonnet++.so" ON)
-option(BUILD_SHARED_BINARIES "Link binaries to the shared libjsonnet instead of the static one." OFF)
-
-option(USE_SYSTEM_JSON "Use the system-provided nlohmann json library" OFF)
-option(USE_SYSTEM_RAPIDYAML "Use the system-provided Rapid YAML library" OFF)
 
 # ------ Compiler configuration
 #
@@ -68,7 +73,8 @@ endif()
 if(USE_SYSTEM_RAPIDYAML)
     find_package(ryml REQUIRED)
 else()
-    message(ERROR "bundled third_party RapidYAML is not supported yet")
+    add_library(ryml STATIC third_party/rapidyaml/rapidyaml.cpp)
+    target_include_directories(ryml INTERFACE third_party/rapidyaml)
 endif()
 
 # ------ Source code configuration
