@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-CMAKE_FLAGS ?= -DUSE_SYSTEM_RAPIDYAML=ON
+CMAKE_FLAGS ?= -DUSE_SYSTEM_RAPIDYAML=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo
 CMAKE ?= cmake -G "Unix Makefiles" $(CMAKE_FLAGS)
 CMAKE_BUILD_DIR ?= ./build
 
