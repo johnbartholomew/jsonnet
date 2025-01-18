@@ -38,7 +38,7 @@ function check {
 
 [ -x ./jsonnet ] || (echo "Please build ./jsonnet first."; exit 1)
 check git
-check jekyll
+# check jekyll
 
 if [ ! -t 0 ]; then
   echo "Not attached to a TTY. Can't prompt the user for confirmation. Exiting." >&1
@@ -72,7 +72,19 @@ git clone \
 )
 
 tools/scripts/update_web_content.sh
-jekyll build -s doc -d "$working_dir"
+
+# Build with locally installed Jekyll.
+# jekyll build -s doc -d "$working_dir"
+
+# My trivial jekyll Dockerfile is just:
+#   FROM docker.io/library/ruby:3.4-bookworm
+#   RUN gem install bundler jekyll
+#
+podman run --rm -it \
+  -v=.:/srcdir:ro \
+  -v="$working_dir":/outdir:rw \
+  localhost/myjekyll:latest \
+  jekyll build --disable-disk-cache -s /srcdir/doc -d /outdir
 
 if [ ! -r "$working_dir/js/libjsonnet.wasm" ]; then
   echo 'We have no js/libjsonnet.wasm; restoring the existing one from git' >&1
