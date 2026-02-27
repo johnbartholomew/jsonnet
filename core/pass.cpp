@@ -307,6 +307,7 @@ void CompilerPass::visitExpr(AST *&ast_)
         VISIT(ast_, AST_ASSERT, Assert);
         VISIT(ast_, AST_BINARY, Binary);
         VISIT(ast_, AST_BUILTIN_FUNCTION, BuiltinFunction);
+        VISIT(ast_, AST_BUILTIN_FUNCTION_BODY, BuiltinFunctionBody);
         VISIT(ast_, AST_CONDITIONAL, Conditional);
         VISIT(ast_, AST_DESUGARED_OBJECT, DesugaredObject);
         VISIT(ast_, AST_DOLLAR, Dollar);
@@ -368,6 +369,7 @@ void ClonePass::expr(AST *&ast_)
         CLONE(ast_, AST_ASSERT, Assert);
         CLONE(ast_, AST_BINARY, Binary);
         CLONE(ast_, AST_BUILTIN_FUNCTION, BuiltinFunction);
+        CLONE(ast_, AST_BUILTIN_FUNCTION_BODY, BuiltinFunctionBody);
         CLONE(ast_, AST_CONDITIONAL, Conditional);
         CLONE(ast_, AST_DESUGARED_OBJECT, DesugaredObject);
         CLONE(ast_, AST_DOLLAR, Dollar);

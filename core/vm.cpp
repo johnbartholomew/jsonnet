@@ -23,6 +23,7 @@ limitations under the License.
 #include <string>
 #include <string_view>
 
+#include "ast.h"
 #include "desugarer.h"
 #include "json.h"
 #include <nlohmann/json.hpp>
@@ -333,8 +334,8 @@ class Stack {
             }
         } else {
             const auto *func = static_cast<const HeapClosure *>(e);
-            if (func->body == nullptr) {
-                return "builtin function <" + func->builtinName + ">";
+            if (func->body->type == AST_BUILTIN_FUNCTION_BODY) {
+                return "builtin function <" + static_cast<const BuiltinFunctionBody*>(func->body)->name + ">";
             }
             return "function <" + name + ">";
         }
@@ -642,7 +643,7 @@ class Interpreter {
     {
         Value r;
         r.t = Value::FUNCTION;
-        r.v.h = makeHeap<HeapClosure>(env, self, offset, params, body, "");
+        r.v.h = makeHeap<HeapClosure>(env, self, offset, params, body);
         return r;
     }
 
@@ -657,10 +658,10 @@ class Interpreter {
 
     Value makeBuiltin(const std::string &name, const HeapClosure::Params &params)
     {
-        AST *body = nullptr;
+        const AST *body = alloc->makeBuiltinBody(name);
         Value r;
         r.t = Value::FUNCTION;
-        r.v.h = makeHeap<HeapClosure>(BindingFrame(), nullptr, 0, params, body, name);
+        r.v.h = makeHeap<HeapClosure>(BindingFrame(), nullptr, 0, params, body);
         return r;
     }
 
@@ -2117,6 +2118,11 @@ class Interpreter {
                 scratch = makeBuiltin(ast.name, params);
             } break;
 
+            case AST_BUILTIN_FUNCTION_BODY: {
+                // Evaluate the function body by forcing the thunks for the parameters and calling it.
+                stack.newFrame(FRAME_BUILTIN_FORCE_THUNKS, ast_);
+            } break;
+
             case AST_CONDITIONAL: {
                 const auto &ast = *static_cast<const Conditional *>(ast_);
                 stack.newFrame(FRAME_IF, ast_);
@@ -2410,7 +2416,7 @@ class Interpreter {
                     const AST *f_ast = f.ast;
                     stack.pop();
 
-                    if (func->body == nullptr) {
+                    if (func->body->type == AST_BUILTIN_FUNCTION_BODY) {
                         // Built-in function.
                         // Give nullptr for self because no one looking at this frame will
                         // attempt to bind to self (it's native code).
@@ -2762,10 +2768,12 @@ class Interpreter {
                 case FRAME_BUILTIN_FORCE_THUNKS: {
                     const auto &ast = *static_cast<const Apply *>(f.ast);
                     auto *func = static_cast<HeapClosure *>(f.val.v.h);
+                    assert(func->body && func->body->type == AST_BUILTIN_FUNCTION_BODY);
                     if (f.elementId == f.thunks.size()) {
+                        auto fbody = static_cast<const BuiltinFunctionBody*>(func->body);
                         // All thunks forced, now the builtin implementations.
                         const LocationRange &loc = ast.location;
-                        const std::string &builtin_name = func->builtinName;
+                        const std::string &builtin_name = fbody->name;
                         std::vector<Value> args;
                         for (auto *th : f.thunks) {
                             args.push_back(th->content);

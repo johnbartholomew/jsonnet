@@ -40,6 +40,7 @@ enum ASTType {
     AST_ASSERT,
     AST_BINARY,
     AST_BUILTIN_FUNCTION,
+    AST_BUILTIN_FUNCTION_BODY,
     AST_CONDITIONAL,
     AST_DESUGARED_OBJECT,
     AST_DOLLAR,
@@ -76,6 +77,7 @@ static inline std::string ASTTypeToString(ASTType type)
         case AST_ASSERT: return "AST_ASSERT";
         case AST_BINARY: return "AST_BINARY";
         case AST_BUILTIN_FUNCTION: return "AST_BUILTIN_FUNCTION";
+        case AST_BUILTIN_FUNCTION_BODY: return "AST_BUILTIN_FUNCTION_BODY";
         case AST_CONDITIONAL: return "AST_CONDITIONAL";
         case AST_DESUGARED_OBJECT: return "AST_DESUGARED_OBJECT";
         case AST_DOLLAR: return "AST_DOLLAR";
@@ -377,6 +379,20 @@ struct BuiltinFunction : public AST {
     Identifiers params;
     BuiltinFunction(const LocationRange &lr, const std::string &name, const Identifiers &params)
         : AST(lr, AST_BUILTIN_FUNCTION, Fodder{}), name(name), params(params)
+    {
+    }
+};
+
+/** Represents the 'body' of a built-in function.
+ *
+ * Of course a built-in function has no jsonnet code body so this is never created by parsing,
+ * or even by desugaring. However there are places in the interpreter that need to represent
+ * a builtin-function that's called but not yet evaluated, and that is what this is for.
+ */
+struct BuiltinFunctionBody : public AST {
+    std::string name;
+    BuiltinFunctionBody(const std::string &name)
+        : AST(LocationRange{}, AST_BUILTIN_FUNCTION_BODY, Fodder{}), name(name)
     {
     }
 };
@@ -955,6 +971,7 @@ struct Var : public AST {
  */
 class Allocator {
     std::map<UString, const Identifier *> internedIdentifiers;
+    std::map<std::string, const BuiltinFunctionBody *> internedBuiltins;
     ASTs allocated;
 
    public:
@@ -971,6 +988,16 @@ class Allocator {
     {
         auto r = new T(*ast);
         allocated.push_back(r);
+        return r;
+    }
+    const BuiltinFunctionBody *makeBuiltinBody(const std::string &name)
+    {
+        auto it = internedBuiltins.find(name);
+        if (it != internedBuiltins.cend()) {
+            return it->second;
+        }
+        auto r = new BuiltinFunctionBody(name);
+        internedBuiltins[name] = r;
         return r;
     }
     /** Returns interned identifiers.
