@@ -23,6 +23,7 @@ limitations under the License.
 #include <string>
 #include <string_view>
 
+#include "ast.h"
 #include "desugarer.h"
 #include "json.h"
 #include <nlohmann/json.hpp>
@@ -333,8 +334,9 @@ class Stack {
             }
         } else {
             const auto *func = static_cast<const HeapClosure *>(e);
-            if (func->body == nullptr) {
-                return "builtin function <" + func->builtinName + ">";
+            if (func->body->type == AST_BUILTIN_FUNCTION) {
+                const auto *bfunc = static_cast<const BuiltinFunction*>(func->body);
+                return "builtin function <" + bfunc->name + ">";
             }
             return "function <" + name + ">";
         }
@@ -536,6 +538,7 @@ class Interpreter {
 
     /** The callback used for loading imported files. */
     VmNativeCallbackMap nativeCallbacks;
+    std::map<std::string, const AST *> nativeCallbackRefASTs;
 
     /** The callback used for loading imported files. */
     JsonnetImportCallback *importCallback;
@@ -642,12 +645,17 @@ class Interpreter {
     {
         Value r;
         r.t = Value::FUNCTION;
-        r.v.h = makeHeap<HeapClosure>(env, self, offset, params, body, "");
+        r.v.h = makeHeap<HeapClosure>(env, self, offset, params, body);
         return r;
     }
 
     Value makeNativeBuiltin(const std::string &name, const std::vector<std::string> &params)
     {
+        auto nit = nativeCallbackRefASTs.find(name);
+        if (nit == nativeCallbackRefASTs.cend()) {
+            const refAst = alloc->make<BuiltinFunction>(LocationRange(), name, params);
+            const auto [it, ok] = nativeCallbackRefASTs.insert({name, })
+        }
         HeapClosure::Params hc_params;
         for (const auto &p : params) {
             hc_params.emplace_back(alloc->makeIdentifier(decode_utf8(p)), nullptr);
@@ -655,12 +663,12 @@ class Interpreter {
         return makeBuiltin(name, hc_params);
     }
 
-    Value makeBuiltin(const std::string &name, const HeapClosure::Params &params)
+    Value makeBuiltin(const AST *ast, const HeapClosure::Params &params)
     {
-        AST *body = nullptr;
+        AST *body = ast;
         Value r;
         r.t = Value::FUNCTION;
-        r.v.h = makeHeap<HeapClosure>(BindingFrame(), nullptr, 0, params, body, name);
+        r.v.h = makeHeap<HeapClosure>(BindingFrame(), nullptr, 0, params, body);
         return r;
     }
 
@@ -2410,7 +2418,7 @@ class Interpreter {
                     const AST *f_ast = f.ast;
                     stack.pop();
 
-                    if (func->body == nullptr) {
+                    if (func->body->type == AST_BUILTIN_FUNCTION) {
                         // Built-in function.
                         // Give nullptr for self because no one looking at this frame will
                         // attempt to bind to self (it's native code).
@@ -2762,10 +2770,11 @@ class Interpreter {
                 case FRAME_BUILTIN_FORCE_THUNKS: {
                     const auto &ast = *static_cast<const Apply *>(f.ast);
                     auto *func = static_cast<HeapClosure *>(f.val.v.h);
+                    auto *bfunc = dynamic_cast<const BuiltinFunction*>(func->body);
                     if (f.elementId == f.thunks.size()) {
                         // All thunks forced, now the builtin implementations.
                         const LocationRange &loc = ast.location;
-                        const std::string &builtin_name = func->builtinName;
+                        const std::string &builtin_name = bfunc->name;
                         std::vector<Value> args;
                         for (auto *th : f.thunks) {
                             args.push_back(th->content);

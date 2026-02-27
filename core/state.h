@@ -276,16 +276,14 @@ struct HeapClosure : public HeapEntity {
     typedef std::vector<Param> Params;
     const Params params;
     const AST *body;
-    std::string builtinName;
     HeapClosure(const BindingFrame &up_values, HeapObject *self, unsigned offset,
-                const Params &params, const AST *body, const std::string &builtin_name)
+                const Params &params, const AST *body)
         : HeapEntity(CLOSURE),
           upValues(up_values),
           self(self),
           offset(offset),
           params(params),
-          body(body),
-          builtinName(builtin_name)
+          body(body)
     {
     }
 };
