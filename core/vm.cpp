@@ -76,7 +76,6 @@ enum FrameKind {
     FRAME_BINARY_RIGHT,          // b in a + b
     FRAME_BINARY_OP,             // a + b, with a and b already calculated
     FRAME_BUILTIN_FILTER,        // When executing std.filter, used to hold intermediate state.
-    FRAME_BUILTIN_FORCE_THUNKS,  // When forcing builtin args, holds intermediate state.
     FRAME_CALL,                  // Used any time we have switched location in user code.
     FRAME_ERROR,                 // e in error e
     FRAME_IF,                    // e in if e then a else b
@@ -236,6 +235,15 @@ struct Frame {
     {
         return kind == FRAME_CALL;
     }
+
+    bool isBuiltinCall(void) const
+    {
+        if (kind != FRAME_CALL) {
+            return false;
+        }
+        const auto *closure = dynamic_cast<HeapClosure *>(context);
+        return closure && closure->isBuiltin();
+    }
 };
 
 /** The stack holds all the stack frames and manages the stack frame limit. */
@@ -336,8 +344,9 @@ class Stack {
             }
         } else {
             const auto *func = static_cast<const HeapClosure *>(e);
-            if (func->isBuiltin()) {
-                return "builtin function <" + func->builtinName + ">";
+            const auto fbody = func->builtinBody();
+            if (fbody) {
+                return "builtin function <" + fbody->name + ">";
             }
             return "function <" + name + ">";
         }
@@ -365,9 +374,10 @@ class Stack {
         stack_trace.push_back(TraceFrame(loc));
         for (int i = stack.size() - 1; i >= 0; --i) {
             const auto &f = stack[i];
-            if (f.isCall()) {
+            // Skip calls to built-ins.
+            if (f.isCall() && !f.isBuiltinCall()) {
                 if (f.context != nullptr) {
-                    // Give the last line a name.
+                    // Give the last line a name, unless it was a call to a built-in.
                     stack_trace[stack_trace.size() - 1].name = getName(i, f.context);
                 }
                 if (f.location.isSet() || f.location.file.length() > 0)
@@ -645,7 +655,7 @@ class Interpreter {
     {
         Value r;
         r.t = Value::FUNCTION;
-        r.v.h = makeHeap<HeapClosure>(env, self, offset, params, body, "");
+        r.v.h = makeHeap<HeapClosure>(env, self, offset, params, body);
         return r;
     }
 
@@ -657,7 +667,7 @@ class Interpreter {
         }
         Value r;
         r.t = Value::FUNCTION;
-        r.v.h = makeHeap<HeapClosure>(BindingFrame(), nullptr, 0, hc_params, body, body->name);
+        r.v.h = makeHeap<HeapClosure>(BindingFrame(), nullptr, 0, hc_params, body);
         return r;
     }
 
@@ -2125,6 +2135,96 @@ class Interpreter {
                 scratch = makeBuiltinFromAST(ast.body);
             } break;
 
+            case AST_BUILTIN_FUNCTION_BODY: {
+                // We should only be evaluating a builtin function body in the context of a FRAME_CALL.
+                assert(stack.top().isCall());
+                const Frame &f = stack.top();
+                const auto builtinBody = static_cast<const BuiltinFunctionBody *>(ast_);
+                const LocationRange &loc = f.location;
+                const std::string &builtin_name = builtinBody->name;
+                std::vector<Value> args;
+                for (const auto &param_id : builtinBody->params) {
+                    const auto it = f.bindings.find(param_id);
+                    if (it != f.bindings.cend()) {
+                        const auto th = it->second;
+                        assert(th->filled);
+                        args.push_back(th->content);
+                    } else {
+                        std::stringstream ss;
+                        ss << "function parameter " << encode_utf8(param_id->name)
+                            << " not bound in call.";
+                        throw makeError(loc, ss.str());
+                    }
+                }
+
+                BuiltinMap::const_iterator bit = builtins.find(builtin_name);
+                if (bit != builtins.end()) {
+                    const AST *new_ast = (this->*bit->second)(loc, args);
+                    if (new_ast != nullptr) {
+                        ast_ = new_ast;
+                        goto recurse;
+                    }
+                    break;
+                }
+                VmNativeCallbackMap::const_iterator nit =
+                    nativeCallbacks.find(builtin_name);
+                // TODO(dcunnin): Support arrays.
+                // TODO(dcunnin): Support objects.
+                std::vector<JsonnetJsonValue> args2;
+                for (const Value &arg : args) {
+                    switch (arg.t) {
+                        case Value::STRING:
+                            args2.emplace_back(
+                                JsonnetJsonValue::STRING,
+                                encode_utf8(static_cast<HeapString *>(arg.v.h)->value),
+                                0);
+                            break;
+
+                        case Value::BOOLEAN:
+                            args2.emplace_back(
+                                JsonnetJsonValue::BOOL, "", arg.v.b ? 1.0 : 0.0);
+                            break;
+
+                        case Value::NUMBER:
+                            args2.emplace_back(JsonnetJsonValue::NUMBER, "", arg.v.d);
+                            break;
+
+                        case Value::NULL_TYPE:
+                            args2.emplace_back(JsonnetJsonValue::NULL_KIND, "", 0);
+                            break;
+
+                        default:
+                            throw makeError(loc,
+                                            "native extensions can only take primitives.");
+                    }
+                }
+                std::vector<const JsonnetJsonValue *> args3;
+                for (size_t i = 0; i < args2.size(); ++i) {
+                    args3.push_back(&args2[i]);
+                }
+                if (nit == nativeCallbacks.end()) {
+                    throw makeError(loc,
+                                    "unrecognized builtin name: " + builtin_name);
+                }
+                const VmNativeCallback &cb = nit->second;
+
+                int succ;
+                std::unique_ptr<JsonnetJsonValue> r(cb.cb(cb.ctx, args3.data(), &succ));
+
+                if (succ) {
+                    bool unused;
+                    jsonToHeap(r, unused, scratch);
+                } else {
+                    if (r->kind != JsonnetJsonValue::STRING) {
+                        throw makeError(
+                            loc,
+                            "native extension returned an error that was not a string.");
+                    }
+                    std::string rs = r->string;
+                    throw makeError(loc, rs);
+                }
+            } break;
+
             case AST_CONDITIONAL: {
                 const auto &ast = *static_cast<const Conditional *>(ast_);
                 stack.newFrame(FRAME_IF, ast_);
@@ -2328,7 +2428,6 @@ class Interpreter {
                     }
 
                     // Create thunks for arguments.
-                    std::vector<HeapThunk *> positional_args;
                     BindingFrame args;
                     bool got_named = false;
                     for (std::size_t i = 0; i < ast.args.size(); ++i) {
@@ -2415,37 +2514,22 @@ class Interpreter {
                     // Cache these, because pop will invalidate them.
                     std::vector<HeapThunk *> thunks_copy = f.thunks;
 
-                    const AST *f_ast = f.ast;
                     stack.pop();
 
-                    if (func->isBuiltin()) {
-                        // Built-in function.
-                        // Give nullptr for self because no one looking at this frame will
-                        // attempt to bind to self (it's native code).
-                        stack.newFrame(FRAME_BUILTIN_FORCE_THUNKS, f_ast);
-                        stack.top().thunks = thunks_copy;
-                        stack.top().val = scratch;
-                        goto replaceframe;
-                    } else {
-                        // User defined function.
-                        stack.newCall(ast.location, func, func->self, func->offset, up_values);
-                        if (ast.tailstrict) {
-                            stack.top().tailCall = true;
-                            if (thunks_copy.size() == 0) {
-                                // No need to force thunks, proceed straight to body.
-                                ast_ = func->body;
-                                goto recurse;
-                            } else {
-                                // The check for args.size() > 0
-                                stack.top().thunks = thunks_copy;
-                                stack.top().val = scratch;
-                                goto replaceframe;
-                            }
-                        } else {
-                            ast_ = func->body;
-                            goto recurse;
+                    stack.newCall(ast.location, func, func->self, func->offset, up_values);
+                    // Built-in functions, or `tailstrict` calls, need their arguments to all be forced before the call.
+                    if (ast.tailstrict || func->isBuiltin()) {
+                        stack.top().tailCall = ast.tailstrict;
+                        stack.top().thunks = std::move(thunks_copy);
+                        // if (func->isBuiltin()) {
+                        //     stack.top().val = scratch;
+                        // }
+                        if (!stack.top().thunks.empty()) {
+                            goto replaceframe;
                         }
                     }
+                    ast_ = func->body;
+                    goto recurse;
                 } break;
 
                 case FRAME_BINARY_LEFT: {
@@ -2767,95 +2851,6 @@ class Interpreter {
                     }
                 } break;
 
-                case FRAME_BUILTIN_FORCE_THUNKS: {
-                    const auto &ast = *static_cast<const Apply *>(f.ast);
-                    auto *func = static_cast<HeapClosure *>(f.val.v.h);
-                    if (f.elementId == f.thunks.size()) {
-                        // All thunks forced, now the builtin implementations.
-                        const LocationRange &loc = ast.location;
-                        const std::string &builtin_name = func->builtinName;
-                        std::vector<Value> args;
-                        for (auto *th : f.thunks) {
-                            args.push_back(th->content);
-                        }
-                        BuiltinMap::const_iterator bit = builtins.find(builtin_name);
-                        if (bit != builtins.end()) {
-                            const AST *new_ast = (this->*bit->second)(loc, args);
-                            if (new_ast != nullptr) {
-                                ast_ = new_ast;
-                                goto recurse;
-                            }
-                            break;
-                        }
-                        VmNativeCallbackMap::const_iterator nit =
-                            nativeCallbacks.find(builtin_name);
-                        // TODO(dcunnin): Support arrays.
-                        // TODO(dcunnin): Support objects.
-                        std::vector<JsonnetJsonValue> args2;
-                        for (const Value &arg : args) {
-                            switch (arg.t) {
-                                case Value::STRING:
-                                    args2.emplace_back(
-                                        JsonnetJsonValue::STRING,
-                                        encode_utf8(static_cast<HeapString *>(arg.v.h)->value),
-                                        0);
-                                    break;
-
-                                case Value::BOOLEAN:
-                                    args2.emplace_back(
-                                        JsonnetJsonValue::BOOL, "", arg.v.b ? 1.0 : 0.0);
-                                    break;
-
-                                case Value::NUMBER:
-                                    args2.emplace_back(JsonnetJsonValue::NUMBER, "", arg.v.d);
-                                    break;
-
-                                case Value::NULL_TYPE:
-                                    args2.emplace_back(JsonnetJsonValue::NULL_KIND, "", 0);
-                                    break;
-
-                                default:
-                                    throw makeError(ast.location,
-                                                    "native extensions can only take primitives.");
-                            }
-                        }
-                        std::vector<const JsonnetJsonValue *> args3;
-                        for (size_t i = 0; i < args2.size(); ++i) {
-                            args3.push_back(&args2[i]);
-                        }
-                        if (nit == nativeCallbacks.end()) {
-                            throw makeError(ast.location,
-                                            "unrecognized builtin name: " + builtin_name);
-                        }
-                        const VmNativeCallback &cb = nit->second;
-
-                        int succ;
-                        std::unique_ptr<JsonnetJsonValue> r(cb.cb(cb.ctx, args3.data(), &succ));
-
-                        if (succ) {
-                            bool unused;
-                            jsonToHeap(r, unused, scratch);
-                        } else {
-                            if (r->kind != JsonnetJsonValue::STRING) {
-                                throw makeError(
-                                    ast.location,
-                                    "native extension returned an error that was not a string.");
-                            }
-                            std::string rs = r->string;
-                            throw makeError(ast.location, rs);
-                        }
-
-                    } else {
-                        // Not all arguments forced yet.
-                        HeapThunk *th = f.thunks[f.elementId++];
-                        if (!th->filled) {
-                            stack.newCall(ast.location, th, th->self, th->offset, th->upValues);
-                            ast_ = th->body;
-                            goto recurse;
-                        }
-                    }
-                } break;
-
                 case FRAME_CALL: {
                     if (auto *thunk = dynamic_cast<HeapThunk *>(f.context)) {
                         // If we called a thunk, cache result.
@@ -2869,12 +2864,13 @@ class Interpreter {
                                 ast_ = th->body;
                                 goto recurse;
                             }
-                        } else if (f.thunks.size() == 0) {
+                        } else if (f.thunks.empty()) {
                             // Body has now been executed
                         } else {
-                            // Execute the body
                             f.thunks.clear();
                             f.elementId = 0;
+                            // Evaluate the function, when we return we'll go to the
+                            // f.thunks.empty() case and complete the call.
                             ast_ = closure->body;
                             goto recurse;
                         }
